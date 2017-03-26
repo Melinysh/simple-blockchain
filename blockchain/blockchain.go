@@ -2,6 +2,8 @@ package blockchain
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"log"
 	"time"
 )
@@ -18,13 +20,28 @@ func GetBlockchain() Blockchain {
 		blocks: map[string]Block{seed.Hash: seed},
 	}
 }
+func BlockchainFromJSON(jsonBlob []byte) Blockchain {
+	blocks := []Block{}
+	bc := GetBlockchain()
+	if err := json.Unmarshal(jsonBlob, &blocks); err != nil {
+		log.Println("unable to unmarshal JSON", string(jsonBlob), err)
+		return bc
+	}
+	for _, b := range blocks {
+		bc.InsertBlock(b)
+	}
+	if len(blocks) > 0 {
+		bc.Head = blocks[0]
+	}
+	return bc
+}
 
 func (bc *Blockchain) InsertBlock(block Block) {
 	bc.Head = block
 	bc.blocks[block.Hash] = block
 }
 
-func (bc *Blockchain) ReplaceChain(blockchain Blockchain) bool {
+func (bc *Blockchain) ShouldReplaceWithChain(blockchain Blockchain) bool {
 	seed := SeedBlock()
 	if seed != bc.blocks[seed.Hash] {
 		log.Println("blockchain: seed block is invalid")
@@ -32,8 +49,6 @@ func (bc *Blockchain) ReplaceChain(blockchain Blockchain) bool {
 	}
 
 	if len(blockchain.blocks) > len(bc.blocks) {
-		log.Println("blockchain: replaced blockchain with new one")
-		bc = &blockchain
 		return true
 	}
 	return false
@@ -75,9 +90,19 @@ func (bc *Blockchain) AddNewBlock(data string) Block {
 	return block
 }
 
+func (bc *Blockchain) Blocks() []Block {
+	blocks := []Block{}
+	block := bc.Head
+	for block != SeedBlock() {
+		blocks = append(blocks, block)
+		block = bc.blocks[block.PrevHash]
+	}
+	return blocks
+}
+
 func (bc *Blockchain) IsValidBlock(block Block, prevBlock Block) bool {
-	if block.Index != len(bc.blocks) {
-		log.Printf("block: invalid index %d, expected %d", block.Index, len(bc.blocks))
+	if block.Index != len(bc.blocks)+1 {
+		log.Printf("block: invalid index %d, expected %d", block.Index, len(bc.blocks)+1)
 		return false
 	} else if prevBlock.Hash != block.PrevHash {
 		log.Printf("block: invalid previous hash on block with index %d", block.Index)
@@ -109,6 +134,7 @@ func generateHash(block Block) string {
 	hashSeed = append(hashSeed, []byte(block.PrevHash)...)
 	hashSeed = append(hashSeed, encodedTime...)
 	hashSeed = append(hashSeed, []byte(block.Data)...)
-	hash := sha256.Sum256(hashSeed)
-	return string(hash[:len(hash)])
+	h := sha256.New()
+	h.Write(hashSeed)
+	return hex.EncodeToString(h.Sum(nil))
 }
